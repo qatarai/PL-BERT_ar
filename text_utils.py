@@ -4,14 +4,23 @@ import os
 import string
 
 _pad = "$"
-_punctuation = ';:,.!?¡¿—…"«»“” '
-_letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-_letters_ipa = "ɑɐɒæɓʙβɔɕçɗɖðʤəɘɚɛɜɝɞɟʄɡɠɢʛɦɧħɥʜɨɪʝɭɬɫɮʟɱɯɰŋɳɲɴøɵɸθœɶʘɹɺɾɻʀʁɽʂʃʈʧʉʊʋⱱʌɣɤʍχʎʏʑʐʒʔʡʕʢǀǁǂǃˈˌːˑʼʴʰʱʲʷˠˤ˞↓↑→↗↘'̩'ᵻ"
+_unknown = "<unk>"
+_punctuation = (
+    ";:,.!?¡¿—…\"«»“” "
+    "،ˌˈ"
+    "()" "[]" '{' '}'
+)
+_phonemes = (
+    ".abdfhijklmnqrstuwz"
+    "ðħɣɹʃʒʔʕ"
+    "θχːˤ̪"
+    "ɪɡɛəpɑʊɒɔeʌɜ"
+    "ŋɐvoɾxɯʋʉʰ"
+    "c-1yæɕɟɨɬɭɲɳɻʀʂʐ"
+    "ʲ̩̃çʎʑɖʈɫ"
+)
 
-# Export all symbols:
-symbols = [_pad] + list(_punctuation) + list(_letters) + list(_letters_ipa)
-
-letters = list(_letters) + list(_letters_ipa)
+symbols = [_pad] + list(_punctuation) + list(_phonemes) + [_unknown]
 
 dicts = {}
 for i in range(len((symbols))):
@@ -23,10 +32,15 @@ class TextCleaner:
         print(len(dicts))
     def __call__(self, text):
         indexes = []
+        unknowns = []
         for char in text:
             try:
                 indexes.append(self.word_index_dictionary[char])
             except KeyError:
-                indexes.append(self.word_index_dictionary['U']) # unknown token
-#                 print(char)
+                unknowns.append(char)
+                indexes.append(self.word_index_dictionary['<unk>']) # unknown token
+
+            with open("unknown_characters.txt", "a", encoding="utf-8") as f:
+                for unk in set(unknowns):
+                    f.write(unk + "\n")
         return indexes
