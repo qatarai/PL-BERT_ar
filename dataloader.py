@@ -112,8 +112,14 @@ class FilePathDataset(torch.utils.data.Dataset):
         phonemes = torch.LongTensor(phoneme)
         labels = torch.LongTensor(labels)
         words = torch.LongTensor(words)
+
+        seq_len = len(phoneme)
+        masked_positions = torch.zeros(seq_len, dtype=torch.bool)
+
+        if len(masked_index) > 0:
+            masked_positions[masked_index] = True
         
-        return phonemes, words, labels, masked_index
+        return phonemes, words, labels, masked_positions
         
 class Collater(object):
     """
@@ -130,10 +136,10 @@ class Collater(object):
         # batch[0] = wave, mel, text, f0, speakerid
         batch_size = len(batch)
 
-        # sort by mel length
-        lengths = [b[1].shape[0] for b in batch]
-        batch_indexes = np.argsort(lengths)[::-1]
-        batch = [batch[bid] for bid in batch_indexes]
+        # Removed for better performance
+        # lengths = [b[1].shape[0] for b in batch]
+        # batch_indexes = np.argsort(lengths)[::-1]
+        # batch = [batch[bid] for bid in batch_indexes]
 
         max_text_length = max([b[1].shape[0] for b in batch])
 
@@ -141,17 +147,17 @@ class Collater(object):
         labels = torch.zeros((batch_size, max_text_length)).long()
         phonemes = torch.zeros((batch_size, max_text_length)).long()
         input_lengths = []
-        masked_indices = []
-        for bid, (phoneme, word, label, masked_index) in enumerate(batch):
+        masked_positions_batch = []
+        for bid, (phoneme, word, label, masked_positions) in enumerate(batch):
             
             text_size = phoneme.size(0)
             words[bid, :text_size] = word
             labels[bid, :text_size] = label
             phonemes[bid, :text_size] = phoneme
             input_lengths.append(text_size)
-            masked_indices.append(masked_index)
+            masked_positions_batch.append(masked_positions)
 
-        return words, labels, phonemes, input_lengths, masked_indices
+        return words, labels, phonemes, input_lengths, masked_positions_batch
 
 
 def build_dataloader(df,
@@ -170,6 +176,7 @@ def build_dataloader(df,
                              num_workers=num_workers,
                              drop_last=(not validation),
                              collate_fn=collate_fn,
-                             pin_memory=(device != 'cpu'))
+                             pin_memory=True,
+                             persistent_workers=True)
 
     return data_loader

@@ -46,8 +46,8 @@ def train():
     train_loader = build_dataloader(
         dataset,
         batch_size=config["batch_size"],
-        num_workers=0,
-        dataset_config=config['dataset_params']
+        num_workers=16,
+        dataset_config=config['dataset_params'],
     )
 
     albert_base_configuration = AlbertConfig(**config['model_params'])
@@ -78,7 +78,7 @@ def train():
 
     accelerator = Accelerator(
         mixed_precision=config['mixed_precision'],
-        split_batches=True,
+        split_batches=False,
         kwargs_handlers=[ddp_kwargs]
     )
 
@@ -122,27 +122,36 @@ def train():
         for _, batch in enumerate(train_loader):
             curr_steps += 1
 
-            words, labels, phonemes, input_lengths, masked_indices = batch
+            words, labels, phonemes, input_lengths, masked_positions = batch
             device = phonemes.device
             input_lengths_tensor = torch.tensor(input_lengths, device=device)
             text_mask = length_to_mask(input_lengths_tensor).to(phonemes.device)
 
             tokens_pred, words_pred = bert(phonemes, attention_mask=(~text_mask).int())
+            B, T, Vv = words_pred.shape
 
-            loss_vocab = 0.0
-            for _s2s_pred, _text_input, _text_length, _masked_indices in zip(words_pred, words, input_lengths, masked_indices):
-                loss_vocab += criterion(_s2s_pred[:_text_length], _text_input[:_text_length])
-            loss_vocab = loss_vocab / max(1, words.size(0))
+            words_pred_flat = words_pred.view(B * T, Vv)
+            words_flat = words.view(B * T)
+            valid_flat = (~text_mask).view(B * T)
 
-            loss_token = 0.0
-            sizes = 1
-            for _s2s_pred, _text_input, _text_length, _masked_indices in zip(tokens_pred, labels, input_lengths, masked_indices):
-                if len(_masked_indices) > 0:
-                    _text_input_sel = _text_input[:_text_length][_masked_indices]
-                    loss_tmp = criterion(_s2s_pred[:_text_length][_masked_indices], _text_input_sel)
-                    loss_token += loss_tmp
-                    sizes += 1
-            loss_token = loss_token / max(1, sizes)
+            if valid_flat.any():
+                loss_vocab = criterion(words_pred_flat[valid_flat], words_flat[valid_flat])
+            else:
+                loss_vocab = torch.tensor(0.0, device=device)
+
+            Bt, Tt, Vt = tokens_pred.shape
+            mask_tensor = torch.zeros((B, T), dtype=torch.bool, device=device)
+            for i, mp in enumerate(masked_positions):
+                mask_tensor[i, :mp.size(0)] = mp
+
+            tokens_pred_flat = tokens_pred.view(Bt * Tt, Vt)
+            labels_flat = labels.view(Bt * Tt)
+            mask_flat = mask_tensor.view(-1)
+
+            if mask_flat.any():
+                loss_token = criterion(tokens_pred_flat[mask_flat], labels_flat[mask_flat])
+            else:
+                loss_token = torch.tensor(0.0, device=device)
 
             loss = loss_vocab + loss_token
 
